@@ -1,0 +1,35 @@
+{
+    // Filters for accounts: list the category names for each account.
+    "filters": {
+        "account_1": [
+            // Example: "category_1", "category_2"
+        ],
+        "account_2": [
+            // Example: "category_1", "category_2"
+        ]
+    },
+    // Categories: each key is a category name and its value is a list of unit IDs.
+    "categories": {
+        "category_1": [
+            // Add unit IDs for category_1 here.
+        ],
+        "category_2": [
+            // Add unit IDs for category_2 here.
+        ]
+    },
+    // Account details: configuration for each account.
+    "accounts": {
+        "account_1": {
+            "allyCode": "",               // Enter the ally code for account_1.
+            "DISCORD_WEBHOOK_URL": ""     // Enter the Discord webhook URL for account_1.
+        },
+        "account_2": {
+            "allyCode": "",               // Enter the ally code for account_2.
+            "DISCORD_WEBHOOK_URL": ""     // Enter the Discord webhook URL for account_2.
+        }
+    },
+    // API configuration: specify the API URL.
+    "api_config": {
+        "API_URL": ""                   // The base URL for the API.
+    }
+}
