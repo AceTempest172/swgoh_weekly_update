@@ -64,9 +64,20 @@ def filter_roster(roster, allowed_units):
     return [unit for unit in roster if unit.get("id") in allowed_units]
 
 def format_gear_level(unit):
-    """Format gear level based on relic and gear tier."""
+    """Return a string representing the unit's gear level.
+    
+    - If relic.currentTier is 0 or 1: use the unit's currentTier as gear level (e.g. "G8").
+    - If relic.currentTier is 2: override gear level to "G13".
+    - Otherwise (relic.currentTier >= 3): use relic mapping (e.g. "R{relic.currentTier - 2}").
+    - If currentTier == 1 and relic.currentTier == 0: return "N/A" (for ships).
+    """
     current_tier = unit.get("currentTier", 0)
     relic_tier = unit.get("relic", {}).get("currentTier", 0) if unit.get("relic") else 0
+
+    # Handle ships (currentTier == 1 and relicTier == 0)
+    if current_tier == 1 and relic_tier == 0:
+        return "N/A"
+    
     if relic_tier == 2:
         return "G13"
     elif relic_tier >= 3:
@@ -92,18 +103,27 @@ def format_category_report(roster, category_name):
     return "\n".join(report_lines)
 
 def has_update(unit, prev_unit):
-    """Check if a unit has changed compared to the previous state."""
-    current = {
-        "rarity": unit.get("currentRarity", 0),
-        "tier": unit.get("currentTier", 0),
-        "relic": unit.get("relic", {}).get("currentTier", 0) if unit.get("relic") else 0
-    }
-    previous = {
-        "rarity": prev_unit.get("currentRarity", 0),
-        "tier": prev_unit.get("currentTier", 0),
-        "relic": prev_unit.get("relicTier", 0)
-    }
-    return current != previous
+    """
+    Return True if any key values have changed between unit and prev_unit.
+    For relic, only consider changes if at least one of the values is 2 or higher.
+    Exclude ships (currentTier == 1 and relicTier == 0) from extra updates.
+    """
+    current_star = unit.get("currentRarity", 0)
+    current_gear = unit.get("currentTier", 0)
+    current_relic = unit.get("relic", {}).get("currentTier", 0) if unit.get("relic") else 0
+    prev_star = prev_unit.get("currentRarity", 0)
+    prev_gear = prev_unit.get("currentTier", 0)
+    prev_relic = prev_unit.get("relicTier", 0)
+
+    # Exclude ships from triggering updates in extra updates
+    if current_gear == 1 and current_relic == 0:
+        return current_star != prev_star  # Only report if star rank changes
+
+    relic_changed = False
+    if current_relic >= 2 or prev_relic >= 2:
+        relic_changed = (current_relic != prev_relic)
+    
+    return (current_star != prev_star) or (current_gear != prev_gear) or relic_changed
 
 def identify_extra_updates(roster, previous_state):
     """Identify changes for all units."""
