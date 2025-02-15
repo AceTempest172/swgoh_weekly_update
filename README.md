@@ -1,6 +1,6 @@
 # Star Wars: Galaxy of Heroes Weekly Updates
 
-This script tracks unit progress in Star Wars: Galaxy of Heroes (SWGOH) by fetching player data, comparing changes over time, and sending updates to a configured Discord webhook.
+This script tracks unit progress in Star Wars: Galaxy of Heroes (SWGOH) by fetching player data from the SWGOH comlink API, comparing changes over time, and sending updates to a configured Discord webhook.
 
 ## Features
 - Tracks specified units based on configuration.
