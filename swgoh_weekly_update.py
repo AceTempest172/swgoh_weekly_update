@@ -80,15 +80,15 @@ def format_category_report(roster, category_name):
         return ""
 
     report_lines = [
-        f"\n{category_name} Progress",
+        f"\n**__{category_name} Progress__**", # Asteriks and underscores are for Discord markdown formatting, remove if undesired
         f"{'Name'.ljust(25)} | {'Star Rank'.ljust(12)} | {'Gear Level'.ljust(12)}",
-        "-" * 52
+        # "-" * 52 # Adds separation between header and objectives when uncommented out
     ]
     for unit in roster:
         name, star_rank = unit["definitionId"].split(":")
         gear_level = format_gear_level(unit)
         report_lines.append(f"{name.ljust(25)} | {star_rank.ljust(12)} | {gear_level.ljust(12)}")
-    report_lines.append("\n" + "=" * 80 + "\n")
+    # report_lines.append("\n" + "=" * 80 + "\n") # Extra separation between categories in final report when uncommented out
     return "\n".join(report_lines)
 
 def has_update(unit, prev_unit):
