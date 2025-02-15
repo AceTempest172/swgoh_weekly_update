@@ -26,7 +26,7 @@ This script tracks unit progress in Star Wars: Galaxy of Heroes (SWGOH) by fetch
 3. Create a `config.json` file in the root directory and configure it as described below.
 4. Run the script:
    ```sh
-   python tracker.py
+   swgoh_weekly_update.py
    ```
 
 ## Configuration
