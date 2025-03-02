@@ -116,30 +116,57 @@ def has_update(unit, prev_unit):
     return current_star != prev_star or current_gear != prev_gear or relic_changed
 
 def identify_nontracked_updates(roster, previous_state, tracked_units):
-    """Return a list of update messages for units not in tracked_units that have changed."""
+    """Return a list of update messages for units not in tracked_units that have changed.
+    
+    - Only include extra update messages for relic if current relic is 2 or higher.
+    - Ignore ships (currentTier == 1 and relicTier == 0) when reporting gear level changes.
+    - Include what the unit was upgraded **from** in the report.
+    - Suppress redundant 'G12 → G13' messages if a unit goes directly to 'G12 → R1'.
+    """
     messages = []
     for unit in roster:
         unit_id = unit.get("id")
         if unit_id in tracked_units:
-            continue  # Ignore tracked units
+            continue  # Only process non-tracked units
 
         prev_unit = previous_state.get(unit_id, {})
         if has_update(unit, prev_unit):
             name, _ = unit["definitionId"].split(":")
-            prev_star, prev_gear, prev_relic = prev_unit.get("currentRarity", 0), prev_unit.get("currentTier", 0), prev_unit.get("relicTier", 0)
-            current_star, current_gear, current_relic = unit.get("currentRarity", 0), unit.get("currentTier", 0), unit.get("relic", {}).get("currentTier", 0) if unit.get("relic") else 0
+            current_star = unit.get("currentRarity", 0)
+            current_gear = unit.get("currentTier", 0)
+            current_relic = unit.get("relic", {}).get("currentTier", 0) if unit.get("relic") else 0
 
+            prev_star = prev_unit.get("currentRarity", 0)
+            prev_gear = prev_unit.get("currentTier", 0)
+            prev_relic = prev_unit.get("relicTier", 0)
+
+            # If this is a ship (currentTier == 1 and relicTier == 0), ignore gear updates
             if current_gear == 1 and current_relic == 0:
                 if prev_star != current_star:
-                    messages.append(f"{name} promoted from {prev_star}★ to {current_star}★.")  # Star promotion only
-                continue  # Skip gear/relic updates for ships
+                    messages.append(f"{name} promoted from {prev_star} star to {current_star} star.")  # Only report star promotion
+                continue  # Skip gear and relic updates for ships
 
+            # Regular unit updates
             if prev_star != current_star:
-                messages.append(f"{name} promoted from {prev_star}★ to {current_star}★.")
-            if prev_gear != current_gear:
+                messages.append(f"{name} promoted from {prev_star} star to {current_star} star.")
+
+            # Track whether the unit went from G12 directly to R1
+            went_directly_to_relic = prev_gear == 12 and prev_relic == 1 and current_relic >= 2
+
+            if prev_gear != current_gear and not went_directly_to_relic:
                 messages.append(f"{name} upgraded gear from G{prev_gear} to G{current_gear}.")
+
+            # Correct relic upgrade reporting
             if current_relic >= 2 and prev_relic != current_relic:
-                messages.append(f"{name} upgraded relic from R{prev_relic - 2} to R{current_relic - 2}.")
+                if prev_relic == 1:
+                    prev_relic_str = f"G{prev_gear}"  # Display gear level before relic upgrade
+                elif prev_relic >= 2:
+                    prev_relic_str = f"R{prev_relic - 2}"
+                else:
+                    prev_relic_str = "Unknown"  # Just in case
+                
+                current_relic_str = f"R{current_relic - 2}"
+                messages.append(f"{name} upgraded relic from {prev_relic_str} to {current_relic_str}.")
                 
     return messages
 
