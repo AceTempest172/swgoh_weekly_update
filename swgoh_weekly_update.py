@@ -166,7 +166,7 @@ def identify_nontracked_updates(roster, previous_state, tracked_units):
                     prev_relic_str = "Unknown"  # Just in case
                 
                 current_relic_str = f"R{current_relic - 2}"
-                messages.append(f"{name} upgraded relic from {prev_relic_str} to {current_relic_str}.")
+                messages.append(f"{name} upgraded from {prev_relic_str} to {current_relic_str}.")
                 
     return messages
 
