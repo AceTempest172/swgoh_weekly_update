@@ -13,6 +13,8 @@ This script tracks unit progress in Star Wars: Galaxy of Heroes (SWGOH) by fetch
 - Python 3.7+
 - `requests` library (install via `pip install requests`)
 - This script depends on an external API, which must be running inside a Docker container or something similar.
+   - Comlink: https://github.com/swgoh-utils/swgoh-comlink
+   - Docker: https://www.docker.com/
 
 ## Setup
 1. Clone this repository:
