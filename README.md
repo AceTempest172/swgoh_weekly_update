@@ -47,10 +47,10 @@ Create a `config.json` file in the root directory with the following structure:
     // Categories: each key is a category name and its value is a list of unit IDs. You can find these IDs by calling the "player" endpoint of the SWGOH comlink API
     "categories": {
         "category_1": [
-            // Add unit IDs for category_1 here.
+            // Add unit IDs for category_1 here. Will need to make API calls to get these using Postman or something similar.
         ],
         "category_2": [
-            // Add unit IDs for category_2 here.
+            // Add unit IDs for category_2 here. Will need to make API calls to get these using Postman or something similar.
         ]
     },
     // Account details: configuration for each account.
