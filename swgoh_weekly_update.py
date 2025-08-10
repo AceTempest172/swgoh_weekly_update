@@ -1,3 +1,10 @@
+"""
+Generic SWGOH Account Tracker
+- Reads config.json for accounts, filters, categories
+- Compares current roster to previously saved state
+- Sends tracked and untracked updates to Discord (with smart chunk splitting)
+"""
+
 import requests
 import json
 import time
@@ -6,77 +13,99 @@ import logging
 import os
 from logging.handlers import RotatingFileHandler
 
-# Suppress requests library debug/info logging
+# ------------------------------
+# CONFIGURE THESE DIRECTORIES PER SCRIPT INSTANCE
+# ------------------------------
+LOG_DIR = "main_logs"  # <-- Change for alt accounts (e.g., "alt_logs")
+STATE_DIR = "previous_states_main"  # <-- Change for alt accounts (e.g., "previous_states_alt")
+
+# ------------------------------
+# CONFIGURE ACCOUNT KEY PER SCRIPT INSTANCE
+# ------------------------------
+ACCOUNT_KEY = "account1"  # <-- Must match a key in config.json["accounts"]
+
+# ------------------------------
+# SUPPRESS VERBOSE LOGGING
+# ------------------------------
 logging.getLogger("requests.packages.urllib3").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
-# Ensure necessary directories exist
-os.makedirs("logs", exist_ok=True)  # Replace "logs" with your preferred logs directory name
-os.makedirs("previous_states", exist_ok=True)  # Replace "previous_states" with your preferred directory for tracking previous states
+# Ensure directories exist
+os.makedirs(LOG_DIR, exist_ok=True)
+os.makedirs(STATE_DIR, exist_ok=True)
 
 # Timestamp for log file
 timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S_%f')[:-3]
 
-# Configure logging with log rotation
+# Configure logging with rotation
 log_handler = RotatingFileHandler(
-    f"logs/tracker_{timestamp}.log", maxBytes=5 * 1024 * 1024, backupCount=5, encoding="utf-8"
-)  # Ensure this matches your logs directory
+    f"{LOG_DIR}/{ACCOUNT_KEY}_{timestamp}.log",
+    maxBytes=5 * 1024 * 1024,
+    backupCount=5,
+    encoding="utf-8"
+)
 log_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S'))
 logging.basicConfig(handlers=[log_handler], level=logging.DEBUG)
 logging.getLogger().addHandler(logging.StreamHandler())
 
-# Load configuration from config.json
+# ------------------------------
+# LOAD CONFIG FILE
+# ------------------------------
 try:
     with open("config.json", "r") as f:
         config = json.load(f)
 
-    # Load necessary settings from config.json. See README for setup guidance.
-    tracked_categories = config["filters"]["account_name"]  # Replace "account_name" with the appropriate account key in your config file
-    api_config = config["api_config"]  # This should contain API configuration details
-    accounts = config["accounts"]  # This should list all accounts being tracked
-    categories = config["categories"]  # This contains unit farming objectives grouped by category
+    # Filters: determines which categories this account tracks
+    tracked_categories = config["filters"][ACCOUNT_KEY]  # <-- Must match config.json key in "filters"
+
+    api_config = config["api_config"]
+    accounts = config["accounts"]
+    categories = config["categories"]
+
 except (FileNotFoundError, json.JSONDecodeError) as e:
     logging.error(f"Error loading config.json: {e}")
     raise SystemExit("Failed to load configuration.")
 
-# Select the account to use. Replace "account_key" with your actual account key from config.json.
-account_key = "your_account_key"  # Change this to match your account in the config file
-ally_code = accounts[account_key]["allyCode"]  # Ally code for the selected account
-discord_webhook_url = accounts[account_key]["DISCORD_WEBHOOK_URL"]  # Webhook for Discord notifications
-API_URL = api_config["API_URL"]  # API endpoint for fetching player data
+# ------------------------------
+# ACCOUNT-SPECIFIC SETTINGS
+# ------------------------------
+ally_code = accounts[ACCOUNT_KEY]["allyCode"]
+discord_webhook_url = accounts[ACCOUNT_KEY]["DISCORD_WEBHOOK_URL"]
+API_URL = api_config["API_URL"]
 
-# Relic tier mapping for readable output
+# ------------------------------
+# RELIC TIER MAPPING
+# ------------------------------
 RELIC_TIER_MAP = {i: f"R{i-2}" for i in range(3, 53)}
 RELIC_TIER_MAP.update({0: "N/A", 1: "Locked", 2: "Unlocked"})
 
+# ------------------------------
+# DATA FETCH
+# ------------------------------
 def fetch_player_data():
     """Fetch player data from the API."""
     try:
         response = requests.post(API_URL, json={"payload": {"allyCode": ally_code}, "enums": False}, timeout=10)
         response.raise_for_status()
         return response.json()
-    except requests.exceptions.RequestException as e:
+    except requests.exceptions.RequestException:
         logging.exception("Error fetching player profile")
         return None
 
+# ------------------------------
+# DATA FILTERS
+# ------------------------------
 def filter_roster(roster, allowed_units):
     """Return only units whose 'id' is in the allowed_units list."""
     return [unit for unit in roster if unit.get("id") in allowed_units]
 
 def format_gear_level(unit):
-    """Return a string representing the unit's gear or relic level.
-    
-    - If relic.currentTier is 0 or 1: use currentTier as gear level (e.g., "G8").
-    - If relic.currentTier is 2: override gear level to "G13".
-    - Otherwise (relic.currentTier >= 3): use relic mapping (e.g., "R{relic.currentTier - 2}").
-    - If currentTier == 1 and relic.currentTier == 0: return "N/A" (for ships).
-    """
+    """Return gear/relic string with ship handling."""
     current_tier = unit.get("currentTier", 0)
-    relic_tier = unit.get("relic", {}).get("currentTier", 0) if unit.get("relic") else 0
+    relic_tier = (unit.get("relic") or {}).get("currentTier", 0)
 
     if current_tier == 1 and relic_tier == 0:
-        return "N/A"  # Ships do not use gear levels
-    
+        return "N/A"  # Ships
     if relic_tier == 2:
         return "G13"
     elif relic_tier >= 3:
@@ -85,124 +114,165 @@ def format_gear_level(unit):
         return f"G{current_tier}"
 
 def format_category_report(roster, category_name):
-    """Format a report for a given category using the full roster provided."""
+    """Format a report for a given category."""
     if not roster:
         return ""
-    
-    report_lines = [
-        f"\n**__{category_name} Progress__**",  # Discord Markdown Formatting
+    lines = [
+        f"\n**__{category_name} Progress__**",
         f"{'Name'.ljust(25)} | {'Star Rank'.ljust(12)} | {'Gear Level'.ljust(12)}",
     ]
     for unit in roster:
-        name, star_rank = unit["definitionId"].split(":")
-        gear_level = format_gear_level(unit)
-        report_lines.append(f"{name.ljust(25)} | {star_rank.ljust(12)} | {gear_level.ljust(12)}")
-    return "\n".join(report_lines)
+        name, star = unit["definitionId"].split(":")
+        lines.append(f"{name.ljust(25)} | {star.ljust(12)} | {format_gear_level(unit).ljust(12)}")
+    return "\n".join(lines)
 
+# ------------------------------
+# CHANGE DETECTION
+# ------------------------------
 def has_update(unit, prev_unit):
-    """Check if a unit has changed since the last recorded state."""
+    """Return True if any tracked values have changed."""
     current_star = unit.get("currentRarity", 0)
     current_gear = unit.get("currentTier", 0)
-    current_relic = unit.get("relic", {}).get("currentTier", 0) if unit.get("relic") else 0
+    current_relic = (unit.get("relic") or {}).get("currentTier", 0)
+
     prev_star = prev_unit.get("currentRarity", 0)
     prev_gear = prev_unit.get("currentTier", 0)
     prev_relic = prev_unit.get("relicTier", 0)
 
-    # Ignore gear updates for ships
-    if current_gear == 1 and current_relic == 0:
-        return current_star != prev_star  # Only report star promotions
+    if current_gear == 1 and current_relic == 0:  # Ships
+        return current_star != prev_star
 
     relic_changed = (current_relic >= 2 or prev_relic >= 2) and (current_relic != prev_relic)
     return current_star != prev_star or current_gear != prev_gear or relic_changed
 
 def identify_nontracked_updates(roster, previous_state, tracked_units):
-    """Return a list of update messages for units not in tracked_units that have changed."""
-    messages = []
-    for unit in roster:
-        unit_id = unit.get("id")
-        if unit_id in tracked_units:
-            continue  # Only process non-tracked units
+    """List of updates for non-tracked units."""
+    msgs = []
+    for u in roster:
+        uid = u.get("id")
+        if uid in tracked_units:
+            continue
+        prev = previous_state.get(uid, {})
+        if not has_update(u, prev):
+            continue
 
-        prev_unit = previous_state.get(unit_id, {})
-        if has_update(unit, prev_unit):
-            name, _ = unit["definitionId"].split(":")
-            current_star = unit.get("currentRarity", 0)
-            current_gear = unit.get("currentTier", 0)
-            current_relic = unit.get("relic", {}).get("currentTier", 0) if unit.get("relic") else 0
+        name, _ = u["definitionId"].split(":")
+        cs, cg, cr = u.get("currentRarity", 0), u.get("currentTier", 0), (u.get("relic") or {}).get("currentTier", 0)
+        ps, pg, pr = prev.get("currentRarity", 0), prev.get("currentTier", 0), prev.get("relicTier", 0)
 
-            prev_star = prev_unit.get("currentRarity", 0)
-            prev_gear = prev_unit.get("currentTier", 0)
-            prev_relic = prev_unit.get("relicTier", 0)
+        if cg == 1 and cr == 0:  # Ships
+            if ps != cs:
+                msgs.append(f"{name} promoted from {ps} star to {cs} star.")
+            continue
 
-            # If this is a ship (currentTier == 1 and relicTier == 0), ignore gear updates
-            if current_gear == 1 and current_relic == 0:
-                if prev_star != current_star:
-                    messages.append(f"{name} promoted from {prev_star} star to {current_star} star.")
-                continue
+        if ps != cs:
+            msgs.append(f"{name} promoted from {ps} star to {cs} star.")
 
-            # Regular unit updates
-            if prev_star != current_star:
-                messages.append(f"{name} promoted from {prev_star} star to {current_star} star.")
-            # ... (gear & relic “from→to” logic here) ...
-    return messages
+        direct_relic = (pg == 12 and pr == 1 and cr >= 2)
+        if pg != cg and not direct_relic:
+            msgs.append(f"{name} upgraded gear from G{pg} to G{cg}.")
 
+        if cr >= 2 and pr != cr:
+            pr_str = f"G{pg}" if pr == 1 else f"R{pr - 2}" if pr >= 2 else "Unknown"
+            cr_str = f"R{cr - 2}"
+            msgs.append(f"{name} upgraded from {pr_str} to {cr_str}.")
+
+    return msgs
+
+# ------------------------------
+# STATE SAVE/LOAD
+# ------------------------------
+def load_previous_state():
+    """Load latest saved state."""
+    try:
+        files = [f for f in os.listdir(STATE_DIR) if f.startswith(f"previous_state_{ACCOUNT_KEY}_")]
+        if not files:
+            return {}
+        latest = max(files, key=lambda f: os.path.getmtime(os.path.join(STATE_DIR, f)))
+        return json.load(open(os.path.join(STATE_DIR, latest)))
+    except:
+        return {}
+
+def save_current_state(roster):
+    """Save current state for next comparison."""
+    st = {
+        u["id"]: {
+            "currentRarity": u.get("currentRarity", 0),
+            "currentTier": u.get("currentTier", 0),
+            "relicTier": (u.get("relic") or {}).get("currentTier", 0)
+        }
+        for u in roster
+    }
+    fn = os.path.join(STATE_DIR, f"previous_state_{ACCOUNT_KEY}_{time.strftime('%Y-%m-%d_%H-%M-%S')}.json")
+    json.dump(st, open(fn, "w"), indent=2)
+
+# ------------------------------
+# DISCORD OUTPUT
+# ------------------------------
 def send_discord_notification(message):
-    """Send to Discord, moving the last line of each chunk into the next chunk."""
+    """Send to Discord, moving last line of each chunk into the next."""
     if not discord_webhook_url:
         return 0
 
-    max_length = 1950
+    max_len = 1950
     lines = message.split("\n")
-    chunks = []
-    current_chunk = []
-    current_len = 0
+    chunks, cur, cur_len = [], [], 0
 
     for line in lines:
-        line_len = len(line) + 1  # account for newline
-        if current_len + line_len > max_length:
-            # pop the last line off
-            last = current_chunk.pop() if current_chunk else ""
-            # close out this chunk
-            chunks.append("\n".join(current_chunk))
-            # start next chunk with that last line plus current
-            current_chunk = [last, line] if last else [line]
-            current_len = sum(len(l) + 1 for l in current_chunk)
+        l_len = len(line) + 1
+        if cur_len + l_len > max_len:
+            last = cur.pop() if cur else ""
+            chunks.append("\n".join(cur))
+            cur = [last, line] if last else [line]
+            cur_len = sum(len(x) + 1 for x in cur)
         else:
-            current_chunk.append(line)
-            current_len += line_len
+            cur.append(line)
+            cur_len += l_len
 
-    if current_chunk:
-        chunks.append("\n".join(current_chunk))
+    if cur:
+        chunks.append("\n".join(cur))
 
     sent = 0
-    for chunk in chunks:
+    for c in chunks:
         try:
-            resp = requests.post(discord_webhook_url, json={"content": chunk})
-            resp.raise_for_status()
+            r = requests.post(discord_webhook_url, json={"content": c})
+            r.raise_for_status()
             sent += 1
-        except requests.exceptions.RequestException as e:
+        except Exception as e:
             logging.error(f"Error sending Discord message: {e}")
     return sent
 
+# ------------------------------
+# MAIN EXECUTION
+# ------------------------------
 def main():
-    """Main execution function."""
     data = fetch_player_data()
     if not data:
         return
 
-    # --- load your previous_state here ---
-    previous_state = {}  
+    prev = load_previous_state()
+    roster = data.get("rosterUnit", [])
 
-    full_roster = data.get("rosterUnit", [])
-    tracked = set()  # fill from config similarly to above
-    # generate your category reports and extra updates...
-    extra_update_messages = identify_nontracked_updates(full_roster, previous_state, tracked)
-    full_report = "\n".join(extra_update_messages).strip()
+    tracked = {uid for cat in tracked_categories for uid in categories.get(cat, [])}
 
-    if full_report:
-        logging.info("\n" + full_report)
-        sent = send_discord_notification(full_report)  # <-- now uses the new “move‐line” logic
+    reports = []
+    for cat in tracked_categories:
+        part = filter_roster(roster, categories.get(cat, []))
+        rep = format_category_report(part, cat)
+        if rep:
+            reports.append(rep)
+
+    extra = identify_nontracked_updates(roster, prev, tracked)
+    reports.append("\nExtra Updates:")
+    reports.append("\n".join(extra) if extra else "No extra updates.")
+
+    full = "\n".join(reports).strip()
+    if full:
+        logging.info("\n" + full)
+        sent = send_discord_notification(full)
         logging.info(f"Messages sent to Discord: {sent}")
+
+    save_current_state(roster)
 
 if __name__ == "__main__":
     main()
