@@ -1,8 +1,8 @@
 """
 Generic SWGOH Account Tracker
-- Reads config.json for accounts, filters, categories
+- Reads config.json for accounts, filters, and categories
 - Compares current roster to previously saved state
-- Sends tracked and untracked updates to Discord (with smart chunk splitting)
+- Sends tracked and non-tracked updates to Discord (with smart chunk splitting)
 """
 
 import requests
@@ -14,32 +14,29 @@ import os
 from logging.handlers import RotatingFileHandler
 
 # ------------------------------
-# CONFIGURE THESE DIRECTORIES PER SCRIPT INSTANCE
-# ------------------------------
-LOG_DIR = "main_logs"  # <-- Change for alt accounts (e.g., "alt_logs")
-STATE_DIR = "previous_states_main"  # <-- Change for alt accounts (e.g., "previous_states_alt")
-
-# ------------------------------
-# CONFIGURE ACCOUNT KEY PER SCRIPT INSTANCE
-# ------------------------------
-ACCOUNT_KEY = "account1"  # <-- Must match a key in config.json["accounts"]
-
-# ------------------------------
 # SUPPRESS VERBOSE LOGGING
 # ------------------------------
 logging.getLogger("requests.packages.urllib3").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
-# Ensure directories exist
+# ------------------------------
+# CONFIGURE DIRECTORIES
+# ------------------------------
+LOG_DIR = "main_logs"
+STATE_DIR = "previous_states_main"
 os.makedirs(LOG_DIR, exist_ok=True)
 os.makedirs(STATE_DIR, exist_ok=True)
 
-# Timestamp for log file
+# ------------------------------
+# TIMESTAMP FOR LOG FILES
+# ------------------------------
 timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S_%f')[:-3]
 
-# Configure logging with rotation
+# ------------------------------
+# CONFIGURE LOGGING WITH ROTATION
+# ------------------------------
 log_handler = RotatingFileHandler(
-    f"{LOG_DIR}/{ACCOUNT_KEY}_{timestamp}.log",
+    f"{LOG_DIR}/account_{timestamp}.log",
     maxBytes=5 * 1024 * 1024,
     backupCount=5,
     encoding="utf-8"
@@ -55,9 +52,8 @@ try:
     with open("config.json", "r") as f:
         config = json.load(f)
 
-    # Filters: determines which categories this account tracks
-    tracked_categories = config["filters"][ACCOUNT_KEY]  # <-- Must match config.json key in "filters"
-
+    # Filters: which categories this account tracks
+    tracked_categories = config["filters"]["account_key_placeholder"]  # Replace with the key you want
     api_config = config["api_config"]
     accounts = config["accounts"]
     categories = config["categories"]
@@ -67,8 +63,9 @@ except (FileNotFoundError, json.JSONDecodeError) as e:
     raise SystemExit("Failed to load configuration.")
 
 # ------------------------------
-# ACCOUNT-SPECIFIC SETTINGS
+# ACCOUNT SETTINGS
 # ------------------------------
+ACCOUNT_KEY = "account_key_placeholder"  # Replace with your account key
 ally_code = accounts[ACCOUNT_KEY]["allyCode"]
 discord_webhook_url = accounts[ACCOUNT_KEY]["DISCORD_WEBHOOK_URL"]
 API_URL = api_config["API_URL"]
@@ -85,7 +82,11 @@ RELIC_TIER_MAP.update({0: "N/A", 1: "Locked", 2: "Unlocked"})
 def fetch_player_data():
     """Fetch player data from the API."""
     try:
-        response = requests.post(API_URL, json={"payload": {"allyCode": ally_code}, "enums": False}, timeout=10)
+        response = requests.post(
+            API_URL,
+            json={"payload": {"allyCode": ally_code}, "enums": False},
+            timeout=10
+        )
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException:
@@ -100,7 +101,7 @@ def filter_roster(roster, allowed_units):
     return [unit for unit in roster if unit.get("id") in allowed_units]
 
 def format_gear_level(unit):
-    """Return gear/relic string with ship handling."""
+    """Return gear/relic string, handling ships specially."""
     current_tier = unit.get("currentTier", 0)
     relic_tier = (unit.get("relic") or {}).get("currentTier", 0)
 
